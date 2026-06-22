@@ -1,0 +1,3 @@
+"C:\Program Files\CMake\bin\cmake.exe" -E rm -f CMakeFiles\auv_nav2.dir/objects.a
+C:\MinGW\bin\ar.exe qc CMakeFiles\auv_nav2.dir/objects.a @CMakeFiles\auv_nav2.dir\objects1.rsp
+C:\MinGW\bin\c++.exe -O3 -march=native -DNDEBUG -Wl,--whole-archive CMakeFiles\auv_nav2.dir/objects.a -Wl,--no-whole-archive -o auv_nav2.exe -Wl,--out-implib,libauv_nav2.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\auv_nav2.dir\linkLibs.rsp
