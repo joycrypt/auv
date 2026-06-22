@@ -241,13 +241,13 @@ int main(int argc, char* argv[]) {
     // Increase a value → trust that sensor LESS.
     // Decrease a value → trust that sensor MORE.
     EKF ekf(
-        /*sigma_acc  */ 0.05,   // IMU accelerometer  [m/s²]
-        /*sigma_gyro */ 0.003,  // IMU gyroscope      [rad/s]
-        /*sigma_dvl  */ 0.05,  // DVL velocity       [m/s]
-        /*sigma_depth*/ 0.05,   // Depth sensor       [m]
-        /*sigma_gps  */ 1.5,    // GPS/USBL position  [m]
-        /*sigma_mag  */ 0.02,   // Magnetometer yaw   [rad]
-        /*sigma_proc */ 0.05   // Process model noise
+        /*sigma_acc  */ 0.02,   // IMU accelerometer  [m/s²] - reduced for better integration
+        /*sigma_gyro */ 0.001,  // IMU gyroscope      [rad/s] - reduced for smoother attitude
+        /*sigma_dvl  */ 0.02,   // DVL velocity       [m/s] - reduced, DVL is very accurate
+        /*sigma_depth*/ 0.01,   // Depth sensor       [m] - reduced, pressure sensors are precise
+        /*sigma_gps  */ 0.5,    // GPS/USBL position  [m] - much lower for USBL underwater
+        /*sigma_mag  */ 0.015,  // Magnetometer yaw   [rad] - slightly reduced
+        /*sigma_proc */ 0.01    // Process model noise - significantly reduced to prevent drift
     );
 
     // ── Initialise EKF from first readings ────────────────────
