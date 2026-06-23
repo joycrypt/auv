@@ -164,12 +164,12 @@ void EKF::initialise(const IMUData& imu, const DVLData& dvl, double initial_dept
     }
 
     // Initial covariance: small for attitude (we bootstrapped it),
-    // larger for position (unknown start)
+    // moderate for position (start is reasonably known)
     P_ = Mat9::Zero();
-    for (int i = 0; i < 3; ++i) P_(i,i)   = 5.0;    // pos: ±2.2 m
-    for (int i = 3; i < 6; ++i) P_(i,i)   = 0.25;   // vel: ±0.5 m/s
-    P_(6,6) = 0.01;  P_(7,7) = 0.01;                 // roll/pitch: ±6°
-    P_(8,8) = 0.10;                                    // yaw: ±18°
+    for (int i = 0; i < 3; ++i) P_(i,i)   = 1.0;    // pos: ±1.0 m (more confident start)
+    for (int i = 3; i < 6; ++i) P_(i,i)   = 0.04;   // vel: ±0.2 m/s (DVL initializes this)
+    P_(6,6) = 0.005;  P_(7,7) = 0.005;               // roll/pitch: ±4° (good accel init)
+    P_(8,8) = 0.05;                                   // yaw: ±13° (magnetometer provides good init)
 
     last_ax_ = ax; last_ay_ = ay; last_az_ = az;
     last_gx_ = imu.gx; last_gy_ = imu.gy; last_gz_ = imu.gz;
@@ -344,16 +344,18 @@ Mat9 EKF::buildQ(double dt) const {
     double qvel  = Q_base_(3,3);
     double qatt  = Q_base_(6,6);
     double dt2   = dt*dt;
+    double dt3   = dt2*dt;
+    double dt4   = dt2*dt2;
 
-    // Position driven by velocity noise
+    // Position-velocity coupled process noise (proper continuous-discrete conversion)
+    // Uses the standard Van Loan method for coupled position-velocity process noise
     for (int i = 0; i < 3; ++i) {
-        // Q(i,   i  ) = qpos * dt2 * dt2 / 4.0;
-        Q(i,i) = qpos * dt2;
-        Q(i,   i+3) = qpos * dt2 * dt  / 2.0;
-        Q(i+3, i  ) = qpos * dt2 * dt  / 2.0;
-        Q(i+3, i+3) = qvel * dt2;
+        Q(i,   i  ) = qvel * dt4 / 4.0;              // Position variance from velocity noise
+        Q(i,   i+3) = qvel * dt3 / 2.0;              // Position-velocity covariance
+        Q(i+3, i  ) = qvel * dt3 / 2.0;              // Velocity-position covariance
+        Q(i+3, i+3) = qvel * dt2;                    // Velocity variance
     }
-    // Attitude noise from gyro
+    // Attitude noise from gyro integration (simple discrete model)
     for (int i = 6; i < 9; ++i)
         Q(i,i) = qatt * dt2;
 

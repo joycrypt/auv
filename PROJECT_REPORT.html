@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>AUV EKF Navigation System - Complete Project Report</title>
+<style>
+    body { font-family: Calibri, Arial, sans-serif; margin: 2cm; line-height: 1.6; color: #1a1a1a; }
+    h1 { color: #1F4E79; page-break-before: always; border-bottom: 3px solid #1F4E79; padding-bottom: 8px; }
+    h1:first-of-type { page-break-before: avoid; }
+    h2 { color: #2E75B5; border-bottom: 2px solid #C5D9F1; padding-bottom: 4px; margin-top: 28px; }
+    h3 { color: #3B6AA0; margin-top: 18px; }
+    h4 { color: #555; margin-top: 14px; }
+    .box { border: 2px solid #2E75B5; padding: 14px; margin: 14px 0; background-color: #F0F4F8; }
+    .formula { background-color: #EEF6FF; padding: 10px; margin: 10px 0; font-family: 'Courier New', monospace; border-left: 4px solid #2E75B5; white-space: pre-wrap; }
+    .code { background-color: #1E1E1E; color: #D4D4D4; padding: 12px; margin: 10px 0; font-family: 'Consolas','Courier New',monospace; font-size: 9.5pt; white-space: pre; overflow-x: auto; border-radius: 4px; }
+    .hl { background-color: #FFF2A8; font-weight: bold; }
+    .ok { color: #1B7F3B; font-weight: bold; }
+    .warn { color: #C0392B; font-weight: bold; }
+    table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 10.5pt; }
+    th { background-color: #2E75B5; color: white; padding: 8px; text-align: left; }
+    td { border: 1px solid #D0D0D0; padding: 7px; }
+    tr:nth-child(even) { background-color: #F2F2F2; }
+    .diagram { border: 2px solid #4472C4; padding: 16px; margin: 16px 0; background-color: #FFFFFF; font-family: monospace; white-space: pre; font-size: 10pt; overflow-x: auto; }
+    .step { background-color: #E8F5E9; border-left: 5px solid #4CAF50; padding: 10px; margin: 10px 0; }
+    .note { background-color: #FFF8E1; border-left: 5px solid #FFB300; padding: 10px; margin: 10px 0; }
+    .qa { background-color: #F5F0FF; border-left: 5px solid #7E57C2; padding: 12px; margin: 12px 0; }
+    .page-break { page-break-after: always; }
+    code { background-color: #EFEFEF; padding: 1px 4px; border-radius: 3px; font-family: 'Consolas',monospace; }
+</style>
+</head>
+<body>
+
+<div style="text-align:center; margin-top:60px;">
+<h1 style="page-break-before:avoid; border:none; font-size:30pt; color:#1F4E79; margin-bottom:6px;">AUV Navigation System</h1>
+<p style="font-size:18pt; color:#2E75B5; margin:4px;">Extended Kalman Filter — Complete Project Report</p>
+<p style="font-size:12pt; color:#666; font-style:italic;">Sensor Fusion of IMU, DVL, Depth, GPS/USBL, and Magnetometer</p>
+<div style="margin-top:40px; display:inline-block; text-align:left; border:2px solid #2E75B5; padding:20px 40px; background:#F0F4F8;">
+<p style="margin:6px 0;"><strong>System:</strong> 9-DOF state estimation, 5-sensor fusion</p>
+<p style="margin:6px 0;"><strong>Language:</strong> C++17 (self-contained, no dependencies)</p>
+<p style="margin:6px 0;"><strong>Visualization:</strong> Python (NumPy / Pandas / Matplotlib)</p>
+<p style="margin:6px 0;"><strong>Mission:</strong> 80 s, ~640 m path, 8000 fused samples</p>
+</div>
+</div>
+
+
+<h1>Table of Contents</h1>
+<ol style="line-height:2; font-size:11.5pt;">
+<li><strong>Executive Summary</strong></li>
+<li><strong>Project Overview &amp; Objectives</strong></li>
+<li><strong>System Architecture &amp; File Structure</strong></li>
+<li><strong>The Data Pipeline — How the Test Data is Created</strong></li>
+<li><strong>Data Formats (Inputs &amp; Output)</strong></li>
+<li><strong>The Matrix Library (matrix.hpp)</strong></li>
+<li><strong>EKF Theory &amp; Mathematics</strong></li>
+<li><strong>Code Walkthrough — How the Code Works</strong></li>
+<li><strong>Complete Manual Calculation (One Full Cycle)</strong></li>
+<li><strong>How the Graphs are Generated</strong></li>
+<li><strong>Results &amp; Performance</strong></li>
+<li><strong>Questions &amp; Answers</strong></li>
+<li><strong>How to Build &amp; Run</strong></li>
+</ol>
+
+<h1>1. Executive Summary</h1>
+<p>This project implements a complete <strong>underwater navigation system</strong> for an Autonomous Underwater Vehicle (AUV). It estimates the vehicle's position, velocity, and orientation in real time by fusing five different sensors using an <strong>Extended Kalman Filter (EKF)</strong>.</p>
+
+<p>The system answers a fundamental question in robotics: <em>"Where am I, how fast am I going, and which way am I pointing?"</em> — using imperfect, noisy sensors that each measure only part of the picture.</p>
+
+<div class="box">
+<h3 style="margin-top:0;">What the system does (in plain words)</h3>
+<ul>
+<li><strong>The IMU</strong> (accelerometer + gyroscope) runs fast (100 Hz) and predicts motion, but drifts over time.</li>
+<li><strong>The DVL</strong> (Doppler Velocity Log) measures velocity accurately but slower (10 Hz).</li>
+<li><strong>The Depth sensor</strong> measures how deep we are (2 Hz).</li>
+<li><strong>GPS/USBL</strong> gives absolute position but only near the surface and slowly (1 Hz).</li>
+<li><strong>The Magnetometer</strong> measures heading (5 Hz).</li>
+</ul>
+<p style="margin-bottom:0;">The EKF blends all of these <strong>optimally</strong>: it uses the fast IMU to predict, then corrects that prediction whenever a slower, more accurate sensor reports in. The result is a smooth, high-rate (100 Hz) estimate that does not drift.</p>
+</div>
+
+<table>
+<tr><th>Quantity</th><th>Final Achieved Accuracy (1&sigma;)</th></tr>
+<tr><td>Position uncertainty</td><td class="ok">0.089 m</td></tr>
+<tr><td>Velocity uncertainty</td><td class="ok">0.007 m/s</td></tr>
+<tr><td>Attitude uncertainty</td><td class="ok">0.098&deg;</td></tr>
+</table>
+
+<h1>2. Project Overview &amp; Objectives</h1>
+
+<h2>2.1 The Navigation Problem</h2>
+<p>Underwater, there is <strong>no continuous GPS</strong> — radio waves do not travel well through water. An AUV must therefore estimate its own state from onboard sensors. Each sensor alone is insufficient:</p>
+
+<table>
+<tr><th>Sensor</th><th>Strength</th><th>Weakness</th></tr>
+<tr><td>IMU</td><td>Very fast (100 Hz), always available</td><td>Integrates error &rarr; drifts without bound</td></tr>
+<tr><td>DVL</td><td>Accurate velocity</td><td>Slower; occasional beam dropouts</td></tr>
+<tr><td>Depth</td><td>Precise vertical position</td><td>Only the Z axis</td></tr>
+<tr><td>GPS/USBL</td><td>Absolute horizontal position</td><td>Only near surface; slow; noisy</td></tr>
+<tr><td>Magnetometer</td><td>Absolute heading</td><td>Only yaw; magnetic disturbance</td></tr>
+</table>
+
+<h2>2.2 The State Vector</h2>
+<p>The filter estimates a <strong>9-element state vector</strong> <code>x</code>:</p>
+<div class="formula">x = [ px, py, pz,  vx, vy, vz,  &phi;(roll), &theta;(pitch), &psi;(yaw) ]&#7488;</div>
+
+<table>
+<tr><th>Index</th><th>Symbol</th><th>Meaning</th><th>Units / Frame</th></tr>
+<tr><td>0</td><td>px</td><td>Position North</td><td>m (NED nav frame)</td></tr>
+<tr><td>1</td><td>py</td><td>Position East</td><td>m (NED nav frame)</td></tr>
+<tr><td>2</td><td>pz</td><td>Position Down (depth)</td><td>m (positive = deeper)</td></tr>
+<tr><td>3</td><td>vx</td><td>Velocity X</td><td>m/s</td></tr>
+<tr><td>4</td><td>vy</td><td>Velocity Y</td><td>m/s</td></tr>
+<tr><td>5</td><td>vz</td><td>Velocity Z</td><td>m/s</td></tr>
+<tr><td>6</td><td>&phi; roll</td><td>Rotation about X</td><td>rad</td></tr>
+<tr><td>7</td><td>&theta; pitch</td><td>Rotation about Y</td><td>rad</td></tr>
+<tr><td>8</td><td>&psi; yaw</td><td>Rotation about Z (heading)</td><td>rad</td></tr>
+</table>
+
+<div class="note"><strong>Coordinate frames:</strong> The navigation frame is <strong>NED</strong> (X=North, Y=East, Z=Down). The body frame is fixed to the vehicle (X=bow/forward, Y=starboard, Z=keel-down). The rotation matrix R<sub>bn</sub> converts body-frame vectors into the navigation frame.</div>
+
+
+<h1>3. System Architecture &amp; File Structure</h1>
+
+<h2>3.1 Directory Layout</h2>
+<div class="diagram">auv/
+├── CMakeLists.txt          Build configuration (C++17, -O3)
+├── include/                Header files (interfaces)
+│   ├── ekf.hpp             EKF class + sensor/NavState structs
+│   ├── matrix.hpp          Fixed-size matrix math library
+│   ├── csv_parser.hpp      Data loading/saving interface
+│   └── logger.hpp          Colored console logging
+├── src/                    Implementation files
+│   ├── main.cpp            Program entry, the fusion loop
+│   ├── ekf.cpp             The Extended Kalman Filter itself
+│   ├── csv_parser.cpp      CSV I/O + synthetic data generator
+│   └── logger.cpp          Logger implementation
+├── data/                   Input sensor CSVs
+│   ├── imu.csv  dvl.csv  depth.csv  gps.csv  mag.csv
+├── results/
+│   └── nav_output.csv      EKF output (one row per IMU step)
+├── visualizer/
+│   └── ekf_visualizer.py   Generates the 5 comparison plots
+└── plots/                  Generated PNG figures</div>
+
+<h2>3.2 How the Pieces Fit Together (Data Flow)</h2>
+<div class="diagram">  data/*.csv                    results/nav_output.csv         plots/*.png
+      │                                  ▲                          ▲
+      │  CSVParser::loadXXX()            │ CSVParser::saveResults() │
+      ▼                                  │                          │
+ ┌──────────┐    predict()+update()  ┌───┴────┐   python read    ┌──┴──────────┐
+ │  main.cpp │ ────────────────────▶ │  EKF   │ ───────────────▶ │ visualizer  │
+ │ fusion    │   per IMU timestep    │ ekf.cpp│   nav_output.csv │ matplotlib  │
+ │ loop      │                       └────────┘                  └─────────────┘
+ └──────────┘</div>
+
+<p>There are three clearly separated stages:</p>
+<ol>
+<li><strong>Input:</strong> <code>csv_parser.cpp</code> reads the five sensor CSV files into vectors of structs.</li>
+<li><strong>Processing:</strong> <code>main.cpp</code> drives the loop; <code>ekf.cpp</code> does the math; results are collected as a vector of <code>NavState</code>.</li>
+<li><strong>Output &amp; Visualization:</strong> results are written to <code>nav_output.csv</code>, then the Python script reads both raw data and EKF output to draw side-by-side comparison plots.</li>
+</ol>
+
+<h2>3.3 Design Principles</h2>
+<table>
+<tr><th>Principle</th><th>How it is applied</th></tr>
+<tr><td>No external dependencies</td><td>A custom <code>matrix.hpp</code> means the C++ core compiles anywhere with just a C++17 compiler.</td></tr>
+<tr><td>Separation of concerns</td><td>I/O (csv_parser), math (matrix), algorithm (ekf), orchestration (main) are independent modules.</td></tr>
+<tr><td>Templated update</td><td>One templated <code>ekfUpdate&lt;M&gt;</code> handles all 5 sensors regardless of measurement size.</td></tr>
+<tr><td>Numerical robustness</td><td>Joseph-form covariance update + diagonal clamping keep the filter stable.</td></tr>
+</table>
+
+<h1>4. The Data Pipeline — How the Test Data is Created</h1>
+
+<p>Because real sea-trial data is not always available, the project includes a <strong>synthetic data generator</strong> (<code>CSVParser::generateSyntheticData</code>). It simulates a "true" vehicle trajectory, then produces realistic noisy sensor readings from that ground truth. This is run with <code>./auv_nav2 --generate-data</code>.</p>
+
+<h2>4.1 The Simulated Mission (4 Phases, 80 seconds)</h2>
+<p>The generator advances a true state with Euler integration at 100 Hz and switches behaviour by time phase:</p>
+
+<table>
+<tr><th>Phase</th><th>Time</th><th>Behaviour</th><th>Commanded motion</th></tr>
+<tr><td>1. Descent + Surge</td><td>0–20 s</td><td>Nose pitches down to about &minus;10&deg;, accelerates forward</td><td>ax&asymp;0.4 m/s&sup2; (decaying), gy = &minus;0.008 rad/s</td></tr>
+<tr><td>2. Banked Turn</td><td>20–40 s</td><td>Rolls to ~20&deg; bank and yaws (turning)</td><td>gz = 0.04 rad/s, gx = 0.005</td></tr>
+<tr><td>3. Level Cruise</td><td>40–60 s</td><td>Roll &amp; pitch return to 0, steady cruise</td><td>no commanded acceleration</td></tr>
+<tr><td>4. Ascent</td><td>60–80 s</td><td>Pitches up to ~+8.6&deg;, decelerates</td><td>ax &lt; 0 (braking), gy = +0.008</td></tr>
+</table>
+
+<h2>4.2 The Ground-Truth Kinematics</h2>
+<p>The "true" vehicle obeys exactly the same physics the EKF assumes — this lets us measure how well the filter recovers the truth. Each 0.01 s step:</p>
+<div class="formula">v_nav += ( R<sub>bn</sub> &middot; a_body  &minus;  [0, 0, g] ) &middot; dt        (g = 9.81)
+p_nav += ( R<sub>bn</sub> &middot; v_body ) &middot; dt
+&eta;     += W(&phi;,&theta;) &middot; &omega;_body &middot; dt              (then wrapped to [&minus;&pi;, &pi;])
+if pz &lt; 0:  pz = 0, vz = 0                  (cannot fly above the surface)</div>
+
+
+<h2>4.3 The Sensor Models (Truth + Noise)</h2>
+<p>From the true state, each sensor reading is synthesized by adding Gaussian noise and applying realistic limitations. A fixed RNG seed (2024) makes the dataset reproducible.</p>
+
+<table>
+<tr><th>Sensor</th><th>Rate</th><th>How it is generated</th><th>Noise &sigma;</th></tr>
+<tr><td>IMU accel</td><td>100 Hz</td><td>Measures specific force = a_body + gravity projected into body axes:<br>ax = ax_b + g&middot;sin&theta;; ay = ay_b &minus; g&middot;cos&theta;&middot;sin&phi;; az = az_b &minus; g&middot;cos&theta;&middot;cos&phi;</td><td>0.05 m/s&sup2;</td></tr>
+<tr><td>IMU gyro</td><td>100 Hz</td><td>True body rates gx_b, gy_b, gz_b + noise</td><td>0.003 rad/s</td></tr>
+<tr><td>DVL</td><td>10 Hz</td><td>True nav velocity rotated <em>into body frame</em> (R&#7488;&middot;v) + noise; 5% random dropout (valid=0)</td><td>0.02 m/s</td></tr>
+<tr><td>Depth</td><td>2 Hz</td><td>max(0, pz + noise)</td><td>0.05 m</td></tr>
+<tr><td>GPS/USBL</td><td>1 Hz</td><td>px, py + noise; <span class="hl">valid only when pz &lt; 2 m</span> (submerged &rarr; no fix)</td><td>1.5 m</td></tr>
+<tr><td>Mag</td><td>5 Hz</td><td>True yaw + noise</td><td>0.02 rad</td></tr>
+</table>
+
+<div class="note"><strong>Key subtlety — the gravity term.</strong> A real accelerometer cannot separate gravity from motion; it measures <em>specific force</em>. So when the AUV is level, the accelerometer reads about &minus;9.81 on the Z axis. The EKF's prediction step must therefore <em>subtract</em> gravity to recover true acceleration. This is exactly why the generator adds the gravity projection, and why <code>stateTransition</code> later subtracts <code>g</code>.</div>
+
+<div class="note"><strong>Why GPS goes invalid below 2 m.</strong> This models reality: once the AUV dives past 2 m the GPS/USBL fix is lost. During those periods the filter must rely on IMU + DVL + Depth only. This is what makes the position uncertainty plot (Group 5) so instructive — you can see &sigma; grow while submerged and snap down when GPS returns near the surface.</div>
+
+<h1>5. Data Formats (Inputs &amp; Output)</h1>
+
+<h2>5.1 Input CSV Files</h2>
+<p>Each file begins with a <code>#</code> comment line and a header row. Lines beginning with <code>#</code> or that fail to parse as numbers are skipped by the loader.</p>
+
+<table>
+<tr><th>File</th><th>Columns</th><th>Rows</th></tr>
+<tr><td>imu.csv</td><td>timestamp, ax, ay, az, gx, gy, gz</td><td>8000</td></tr>
+<tr><td>dvl.csv</td><td>timestamp, vx, vy, vz, valid</td><td>800</td></tr>
+<tr><td>depth.csv</td><td>timestamp, depth_m, valid</td><td>160</td></tr>
+<tr><td>gps.csv</td><td>timestamp, x_m, y_m, valid</td><td>80</td></tr>
+<tr><td>mag.csv</td><td>timestamp, yaw_rad, valid</td><td>400</td></tr>
+</table>
+
+<h4>Example (first rows of imu.csv)</h4>
+<div class="code"># AUV Synthetic IMU  — timestamp,ax,ay,az,gx,gy,gz
+timestamp,ax,ay,az,gx,gy,gz
+0.0000000,0.4308749,0.0447752,-9.7792095,0.0034455,-0.0150936,-0.0043349
+0.0100000,0.3197754,-0.0474887,-9.8346498,-0.0006119,-0.0076780,-0.0022095</div>
+<p>Note <code>az &asymp; &minus;9.78</code>: that is gravity dominating the Z accelerometer while the vehicle is nearly level.</p>
+
+<h2>5.2 Output File — results/nav_output.csv</h2>
+<p>One row is written per IMU timestep (8000 rows). Columns:</p>
+<div class="code">timestamp,
+px_m, py_m, pz_m,                       ← position (m)
+vx_ms, vy_ms, vz_ms,                     ← velocity (m/s)
+roll_deg, pitch_deg, yaw_deg,            ← attitude (degrees)
+speed_horiz_ms, speed_total_ms,          ← derived speeds
+distance_total_m, depth_m,               ← path length, depth(=pz)
+std_pos_m, std_vel_ms, std_att_deg,      ← 1σ uncertainties
+upd_imu, upd_dvl, upd_depth, upd_gps, upd_mag   ← which sensors fired (0/1)</div>
+
+<div class="note">Attitude is stored in <strong>degrees</strong> in the output even though the filter works internally in <strong>radians</strong>. The <code>upd_*</code> flags let the visualizer mark exactly when each sensor corrected the estimate.</div>
+
+
+<h1>6. The Matrix Library (matrix.hpp)</h1>
+<p>The EKF needs linear algebra (multiply, transpose, invert). Rather than depend on a library like Eigen, the project includes a small, header-only, <strong>fixed-size</strong> matrix class. The size is part of the type (<code>Matrix&lt;R,C&gt;</code>), so dimension mistakes are caught at compile time.</p>
+
+<h2>6.1 What it provides</h2>
+<table>
+<tr><th>Operation</th><th>Method</th><th>Used for</th></tr>
+<tr><td>Element access</td><td><code>(r,c)</code> or <code>[i]</code></td><td>Reading/writing entries</td></tr>
+<tr><td>Add / subtract</td><td><code>+ - +=</code></td><td>P + Q, z &minus; Hx</td></tr>
+<tr><td>Scalar multiply</td><td><code>* </code></td><td>Scaling by dt</td></tr>
+<tr><td>Matrix multiply</td><td><code>A * B</code></td><td>F&middot;P, H&middot;P&middot;H&#7488;</td></tr>
+<tr><td>Transpose</td><td><code>.transpose()</code></td><td>F&#7488;, H&#7488;</td></tr>
+<tr><td>Inverse</td><td><code>.inverse()</code></td><td>S&#8315;&sup1; in the Kalman gain</td></tr>
+<tr><td>Identity / Zero</td><td><code>Identity() Zero()</code></td><td>Initialisation, (I&minus;KH)</td></tr>
+<tr><td>Clamp diagonal</td><td><code>.clampDiagonal(min)</code></td><td>Keep P positive-definite</td></tr>
+</table>
+
+<h2>6.2 The Inverse (Gauss-Jordan with Partial Pivoting)</h2>
+<p>The matrix inverse is the most delicate operation. It uses Gauss-Jordan elimination: augment with the identity, then row-reduce. <strong>Partial pivoting</strong> (swapping in the row with the largest pivot element) improves numerical stability. If a pivot is essentially zero, the matrix is singular and an exception is thrown — a useful early warning that noise parameters are misconfigured.</p>
+
+<div class="formula">Type aliases used throughout:
+  Vec9   = Matrix&lt;9,1&gt;     state vector
+  Mat9   = Matrix&lt;9,9&gt;     covariance, Jacobian
+  Mat3x9 = Matrix&lt;3,9&gt;     DVL observation matrix H
+  Mat9x3 = Matrix&lt;9,3&gt;     Kalman gain K (for a 3-D measurement)</div>
+
+<h1>7. EKF Theory &amp; Mathematics</h1>
+
+<h2>7.1 Why "Extended"?</h2>
+<p>A standard Kalman Filter assumes the system is <strong>linear</strong>: x<sub>k</sub> = A&middot;x<sub>k&minus;1</sub> + B&middot;u. But our motion model is <strong>nonlinear</strong> — the rotation matrix R<sub>bn</sub> and the Euler kinematics matrix W contain sines, cosines, and tangents of the attitude angles. The <em>Extended</em> KF handles this by <strong>linearising</strong> the model at each step: it computes the Jacobian (matrix of partial derivatives) F = &part;f/&part;x around the current estimate.</p>
+
+<h2>7.2 The Two Phases</h2>
+<div class="diagram">┌──────────────── PREDICT (every IMU step, 100 Hz) ────────────────┐
+│  x⁻ = f(x, u, dt)            propagate state with IMU            │
+│  F  = ∂f/∂x                  linearise (Jacobian)               │
+│  P⁻ = F·P·Fᵀ + Q             grow uncertainty                    │
+└──────────────────────────────────────────────────────────────────┘
+┌──────────────── UPDATE (when a sensor reports) ──────────────────┐
+│  y = z − H·x⁻                innovation (measurement − predict)  │
+│  S = H·P⁻·Hᵀ + R             innovation covariance               │
+│  K = P⁻·Hᵀ·S⁻¹               Kalman gain (optimal blend)         │
+│  x = x⁻ + K·y                correct the state                   │
+│  P = (I−KH)P⁻(I−KH)ᵀ + KRKᵀ  shrink uncertainty (Joseph form)    │
+└──────────────────────────────────────────────────────────────────┘</div>
+
+<h2>7.3 The Motion Model f(x, u, dt)</h2>
+<div class="formula">Position:  ṗ = R<sub>bn</sub>(&phi;,&theta;,&psi;) &middot; v_body
+Velocity:  v̇ = R<sub>bn</sub>(&phi;,&theta;,&psi;) &middot; a_body  &minus;  [0, 0, g]&#7488;
+Attitude:  &eta;̇ = W(&phi;,&theta;) &middot; &omega;_body</div>
+
+<h3>Rotation matrix R<sub>bn</sub> (ZYX: yaw &rarr; pitch &rarr; roll)</h3>
+<div class="formula">R<sub>bn</sub> = [ c&psi;c&theta;   c&psi;s&theta;s&phi;&minus;s&psi;c&phi;   c&psi;s&theta;c&phi;+s&psi;s&phi; ]
+      [ s&psi;c&theta;   s&psi;s&theta;s&phi;+c&psi;c&phi;   s&psi;s&theta;c&phi;&minus;c&psi;s&phi; ]
+      [ &minus;s&theta;     c&theta;s&phi;            c&theta;c&phi;          ]
+   where c = cos, s = sin</div>
+
+<h3>Euler kinematics matrix W(&phi;,&theta;)</h3>
+<div class="formula">W = [ 1   sin&phi;&middot;tan&theta;    cos&phi;&middot;tan&theta;  ]
+    [ 0   cos&phi;          &minus;sin&phi;         ]
+    [ 0   sin&phi;/cos&theta;    cos&phi;/cos&theta;   ]
+   (singular at &theta; = &plusmn;90&deg; — "gimbal lock"; guarded in code)</div>
+
+<h2>7.4 The Tuning Parameters</h2>
+<p>The filter behaviour is controlled by noise standard deviations. <strong>Smaller &sigma; = trust that source more.</strong></p>
+<table>
+<tr><th>Parameter</th><th>Value</th><th>Meaning</th></tr>
+<tr><td>sigma_acc</td><td>0.02</td><td>Accelerometer noise (m/s&sup2;)</td></tr>
+<tr><td>sigma_gyro</td><td>0.001</td><td>Gyroscope noise (rad/s)</td></tr>
+<tr><td>sigma_dvl</td><td>0.02</td><td>DVL velocity noise (m/s)</td></tr>
+<tr><td>sigma_depth</td><td>0.01</td><td>Depth noise (m)</td></tr>
+<tr><td>sigma_gps</td><td>0.5</td><td>GPS/USBL position noise (m)</td></tr>
+<tr><td>sigma_mag</td><td>0.015</td><td>Magnetometer yaw noise (rad)</td></tr>
+<tr><td>sigma_proc</td><td>0.01</td><td>Process model noise (how much we distrust the model)</td></tr>
+</table>
+
+
+<h1>8. Code Walkthrough — How the Code Works</h1>
+
+<h2>8.1 main.cpp — The Orchestrator</h2>
+<p>The <code>main()</code> function ties everything together in six steps:</p>
+<ol>
+<li><strong>Parse arguments</strong> — optional file paths, <code>--generate-data</code>, <code>--verbose</code>.</li>
+<li><strong>(Optional) generate synthetic data</strong> if <code>--generate-data</code> is passed.</li>
+<li><strong>Load all five sensor files</strong> via <code>CSVParser</code>.</li>
+<li><strong>Construct and initialise the EKF</strong> with the tuned noise parameters.</li>
+<li><strong>Run the fusion loop</strong> (the heart of the program).</li>
+<li><strong>Save results</strong> and print a mission summary.</li>
+</ol>
+
+<h3>The Fusion Loop</h3>
+<p>This is the core control flow. For every IMU sample it predicts, then applies whichever sensor measurements have "come due" (timestamp &le; current IMU time):</p>
+<div class="code">for (size_t i = 1; i < imu_data.size(); ++i) {
+    double dt = imu.timestamp - imu_data[i-1].timestamp;
+    if (dt <= 0.0 || dt > 1.0) continue;        // skip bad timestamps
+
+    ekf.predict(imu, dt);                        // 1. PREDICT with IMU
+
+    while (dvl[i_dvl].timestamp <= imu.timestamp) ekf.updateDVL(...);    // 2.
+    while (dep[i_dep].timestamp <= imu.timestamp) ekf.updateDepth(...);  // 3.
+    while (gps[i_gps].timestamp <= imu.timestamp) ekf.updateGPS(...);    // 4.
+    while (mag[i_mag].timestamp <= imu.timestamp) ekf.updateMag(...);    // 5.
+
+    NavState ns = ekf.getNavState(imu.timestamp);  // record the result
+    results.push_back(ns);
+}</div>
+
+<div class="note"><strong>Why the <code>while</code> loops?</strong> Sensors run at different rates. Between two IMU samples (0.01 s apart), zero or more DVL/depth/GPS/mag samples may have arrived. The <code>while</code> drains every measurement that is now due, so each is applied exactly once at the right time. The index counters (<code>i_dvl</code> etc.) never rewind, giving an efficient single pass over all data.</div>
+
+<h2>8.2 ekf.cpp — The Filter</h2>
+
+<h3>8.2.1 initialise()</h3>
+<p>Sets the starting state. Roll and pitch are <em>bootstrapped</em> from the accelerometer (which senses the gravity direction when nearly static); yaw comes from the magnetometer; depth and velocity from their sensors. The initial covariance P&#8320; encodes how confident we are in that starting guess.</p>
+<div class="code">pitch = asin(-ax / |a|);   roll = atan2(ay, az);   // from gravity vector
+yaw   = initial_yaw_rad;                            // from magnetometer
+P0 = diag([1,1,1, 0.04,0.04,0.04, 0.005,0.005,0.05]);</div>
+
+<h3>8.2.2 predict()</h3>
+<p>Runs once per IMU step. It (a) propagates the state through the nonlinear model, (b) builds the Jacobian F, (c) builds process noise Q for this dt, and (d) propagates the covariance.</p>
+<div class="code">x_ = stateTransition(x_, ax,ay,az, gx,gy,gz, dt);   // nonlinear propagate
+Mat9 F = computeJacobian(x_, ax,ay,az, gx,gy,gz, dt);
+Mat9 Q = buildQ(dt);
+P_ = F * P_ * F.transpose() + Q;                     // covariance grows
+P_.clampDiagonal(1e-9);                              // numerical guard</div>
+
+<h3>8.2.3 stateTransition() — the nonlinear model</h3>
+<p>Implements the equations from §7.3: rotate body velocity/acceleration into the nav frame, subtract gravity from the Z acceleration, integrate position/velocity, and integrate attitude with the W matrix. Angles are wrapped to [&minus;&pi;, &pi;].</p>
+
+<h3>8.2.4 computeJacobian() — linearisation</h3>
+<p>F is a 9&times;9 matrix of partial derivatives. The non-trivial blocks come from differentiating R<sub>bn</sub> and W with respect to the attitude angles. The code computes these <strong>analytically</strong> (exact derivatives <code>dR/d&phi;</code>, <code>dR/d&theta;</code>, <code>dR/d&psi;</code>, and <code>dW/d&phi;</code>, <code>dW/d&theta;</code>) rather than numerically — faster and more accurate.</p>
+<div class="formula">F structure (block form):
+  ∂ṗ/∂v = R<sub>bn</sub>·dt        ∂ṗ/∂&eta; = (∂R/∂&eta;·v)·dt
+  ∂v̇/∂&eta; = (∂R/∂&eta;·a)·dt     ∂&eta;̇/∂&eta; = I + (∂W/∂&eta;·&omega;)·dt</div>
+
+<h3>8.2.5 buildQ() — process noise</h3>
+<p>Q models how much real motion deviates from our idealised model in time dt. It uses the standard <strong>continuous-to-discrete (Van Loan) conversion</strong> for a position–velocity system, which correctly couples position and velocity noise:</p>
+<div class="code">Q(pos,pos) = qvel · dt⁴/4      // position variance from velocity noise
+Q(pos,vel) = qvel · dt³/2      // position-velocity correlation
+Q(vel,vel) = qvel · dt²        // velocity variance
+Q(att,att) = qatt · dt²        // attitude variance</div>
+
+<h3>8.2.6 ekfUpdate&lt;M&gt;() — the generic correction</h3>
+<p>A single templated function handles all sensors. <code>M</code> is the measurement dimension (1 for depth/mag, 2 for GPS, 3 for DVL). It computes the innovation, the gain, updates the state, and updates the covariance in <strong>Joseph form</strong> for stability:</p>
+<div class="code">y = z - H * x_;                       // innovation
+S = H * P_ * H.transpose() + R;       // innovation covariance
+K = P_ * H.transpose() * S.inverse(); // Kalman gain
+x_ = x_ + K * y;                      // state correction
+IKH = I - K*H;
+P_ = IKH * P_ * IKH.transpose() + K * R * K.transpose();  // Joseph form</div>
+
+<h3>8.2.7 The five sensor updates</h3>
+<table>
+<tr><th>Method</th><th>Measures</th><th>H picks state index</th><th>Dim</th></tr>
+<tr><td>updateDVL</td><td>vx, vy, vz</td><td>3, 4, 5</td><td>3</td></tr>
+<tr><td>updateDepth</td><td>pz</td><td>2</td><td>1</td></tr>
+<tr><td>updateGPS</td><td>px, py</td><td>0, 1</td><td>2</td></tr>
+<tr><td>updateMag</td><td>yaw</td><td>8</td><td>1</td></tr>
+</table>
+<p>The magnetometer update is special: it computes the innovation with <strong>angle wrapping</strong> so that, e.g., 179&deg; and &minus;179&deg; are treated as 2&deg; apart, not 358&deg;.</p>
+
+<h3>8.2.8 getNavState() — assembling output</h3>
+<p>Copies the state into a <code>NavState</code>, converts attitude to convenient forms, computes derived quantities (horizontal speed, total speed, cumulative distance), and reports per-group 1&sigma; uncertainties from the diagonal of P:</p>
+<div class="formula">std_pos_m   = sqrt( (P[0,0]+P[1,1]+P[2,2]) / 3 )
+std_vel_ms  = sqrt( (P[3,3]+P[4,4]+P[5,5]) / 3 )
+std_att_deg = sqrt( (P[6,6]+P[7,7]+P[8,8]) / 3 ) &middot; 180/&pi;</div>
+
+
+<h1>9. Complete Manual Calculation (One Full Cycle)</h1>
+<p>This section works one EKF cycle by hand so the math is fully transparent. We use representative values around <code>t = 0.32 s</code>.</p>
+
+<h2>9.1 Starting Point</h2>
+<table>
+<tr><th>State</th><th>Value</th></tr>
+<tr><td>Position [px, py, pz]</td><td>[&minus;1.30, 1.80, 0.09] m</td></tr>
+<tr><td>Velocity [vx, vy, vz]</td><td>[0.10, 0.05, 0.02] m/s</td></tr>
+<tr><td>Attitude [&phi;, &theta;, &psi;]</td><td>[&minus;3.122, 0.007, 0.304] rad &asymp; [&minus;178.9&deg;, 0.4&deg;, 17.4&deg;]</td></tr>
+</table>
+<div class="formula">P (diagonal) = [1.0, 1.0, 1.0,  0.04, 0.04, 0.04,  0.005, 0.005, 0.05]
+IMU input:  a = [0.12, &minus;0.03, 9.85] m/s&sup2;,  &omega; = [&minus;0.001, 0.025, &minus;0.002] rad/s,  dt = 0.01 s</div>
+
+<h2>9.2 PREDICT — Step by Step</h2>
+
+<h3>Step 1: Rotation matrix R<sub>bn</sub></h3>
+<div class="formula">cos&psi;=0.954, sin&psi;=0.299, cos&theta;&asymp;1.000, sin&theta;=0.007, cos&phi;&asymp;&minus;1.000, sin&phi;=&minus;0.020
+
+R<sub>bn</sub> &asymp; [  0.954   0.299   0.001 ]
+        [ &minus;0.299   0.954   0.007 ]
+        [ &minus;0.007   0.000   1.000 ]</div>
+
+<h3>Step 2: Velocity update (rotate accel, subtract gravity)</h3>
+<div class="formula">a_nav = R<sub>bn</sub> &middot; [0.12, &minus;0.03, 9.85]&#7488; = [0.105, &minus;0.051, 9.849]
+subtract g:  a_nav_z = 9.849 &minus; 9.81 = 0.039
+
+vx = 0.10 + 0.105&times;0.01 = <span class="hl">0.101 m/s</span>
+vy = 0.05 + (&minus;0.051)&times;0.01 = <span class="hl">0.049 m/s</span>
+vz = 0.02 + 0.039&times;0.01 = <span class="hl">0.020 m/s</span></div>
+
+<h3>Step 3: Position update (rotate velocity)</h3>
+<div class="formula">v_nav = R<sub>bn</sub> &middot; [0.10, 0.05, 0.02]&#7488; = [0.110, 0.018, 0.020]
+
+px = &minus;1.30 + 0.110&times;0.01 = <span class="hl">&minus;1.299 m</span>
+py =  1.80 + 0.018&times;0.01 = <span class="hl">1.800 m</span>
+pz =  0.09 + 0.020&times;0.01 = <span class="hl">0.090 m</span></div>
+
+<h3>Step 4: Attitude update (W &middot; &omega;)</h3>
+<div class="formula">d&eta; = W(&phi;,&theta;) &middot; [&minus;0.001, 0.025, &minus;0.002]&#7488; &middot; dt = [&minus;0.000018, 0.000250, &minus;0.000020]
+
+roll  = &minus;3.122 + (&minus;0.000018) &asymp; <span class="hl">&minus;178.96&deg;</span>
+pitch =  0.007 + 0.000250    &asymp; <span class="hl">0.41&deg;</span>
+yaw   =  0.304 + (&minus;0.000020) &asymp; <span class="hl">17.42&deg;</span></div>
+
+<h3>Step 5: Covariance grows</h3>
+<div class="formula">P⁻ = F &middot; P &middot; F&#7488; + Q
+With sigma_proc = 0.01 and dt = 0.01:  Q is tiny (Q_vel &asymp; 1e-8), so P barely grows in one step.</div>
+
+<h2>9.3 UPDATE — DVL Measurement Arrives</h2>
+<p>The DVL reports body velocity <code>z = [0.10, 0.05, 0.02] m/s</code>.</p>
+
+<div class="formula">Innovation:  y = z &minus; H&middot;x⁻ = [0.10,0.05,0.02] &minus; [0.101,0.049,0.020] = [&minus;0.001, 0.001, 0.000]
+
+Innovation cov:  S = P_vel + R_dvl = 0.04 + 0.0004 = 0.0404  (per axis)
+
+Kalman gain:  K = P_vel / S = 0.04 / 0.0404 = <span class="hl">0.990</span>   (trust DVL ~99%)
+
+State correction:
+  vx = 0.101 + 0.990&times;(&minus;0.001) = <span class="ok">0.100 m/s</span>
+  vy = 0.049 + 0.990&times;( 0.001) = <span class="ok">0.050 m/s</span>
+  vz = 0.020 + 0.990&times;( 0.000) = <span class="ok">0.020 m/s</span>
+
+Covariance shrinks (Joseph):
+  P_vel⁺ = (1&minus;0.990)&sup2;&middot;0.04 + 0.990&sup2;&middot;0.0004 &asymp; 0.00043
+  &sigma;_vel = &radic;0.00043 &asymp; <span class="ok">0.021 m/s</span>   (was 0.2 m/s)</div>
+
+<h2>9.4 UPDATE — Depth Measurement Arrives</h2>
+<div class="formula">z_depth = 0.09 m,  predicted pz = 0.090 m
+Innovation y = 0.09 &minus; 0.090 = 0.000 m   (perfect match)
+S = P_pz + R_depth = 1.0 + 0.0001 = 1.0001
+K = 1.0 / 1.0001 &asymp; <span class="hl">0.9999</span>   (trust depth almost completely)
+&sigma;_pz⁺ = &radic;0.0001 = <span class="ok">0.01 m</span>   (was 1.0 m)</div>
+
+<h2>9.5 Interpreting the Kalman Gain</h2>
+<table>
+<tr><th>Gain K</th><th>Meaning</th><th>When</th></tr>
+<tr><td>&asymp; 1.0</td><td>Trust the measurement</td><td>Sensor very accurate OR prediction uncertain</td></tr>
+<tr><td>&asymp; 0.5</td><td>Balance both</td><td>Comparable uncertainties</td></tr>
+<tr><td>&asymp; 0.0</td><td>Trust the prediction</td><td>Sensor noisy OR prediction confident</td></tr>
+</table>
+<p>The gain is literally <code>K = (prediction uncertainty) / (prediction + measurement uncertainty)</code>. Our DVL gain of 0.99 says: "the prediction has &sigma;=0.2 m/s, the DVL has &sigma;=0.02 m/s, so weight the DVL heavily."</p>
+
+
+<h1>10. How the Graphs are Generated</h1>
+
+<h2>10.1 The Visualization Pipeline</h2>
+<p>The plots are produced by <code>visualizer/ekf_visualizer.py</code> using <strong>Pandas</strong> (to read CSVs), <strong>NumPy</strong> (math), and <strong>Matplotlib</strong> (drawing). The script reads two kinds of data and compares them:</p>
+<div class="diagram">data/*.csv  ───┐
+               ├──▶  pandas.read_csv  ──▶  DataFrames  ──▶  5 figures (PNG)
+results/       │                                              left  = RAW sensor
+nav_output.csv ┘                                              right = EKF output</div>
+
+<p>Run it with:</p>
+<div class="code">python3 visualizer/ekf_visualizer.py --save --out plots/</div>
+
+<h2>10.2 The Common Pattern: Left = Raw, Right = EKF</h2>
+<p>Every figure uses the same teaching layout — each row shows one variable, with the <strong>raw sensor data on the left</strong> (tagged "BEFORE EKF") and the <strong>smooth fused EKF estimate on the right</strong> (tagged "AFTER EKF"). The right panels also draw a shaded <strong>&plusmn;1&sigma; uncertainty band</strong> and mark the timestamps where each sensor corrected the estimate.</p>
+
+<h3>Key helper functions</h3>
+<table>
+<tr><th>Function</th><th>Role</th></tr>
+<tr><td><code>load_csv()</code></td><td>Reads a CSV, strips comments, lowercases column names</td></tr>
+<tr><td><code>valid_rows()</code></td><td>Keeps only rows where <code>valid == 1</code> (drops dropouts/invalid fixes)</td></tr>
+<tr><td><code>style_ax()</code></td><td>Applies the dark theme, titles, grid, optional inverted Y (for depth)</td></tr>
+<tr><td><code>std_band()</code></td><td>Draws the &plusmn;1&sigma; shaded band around the EKF line</td></tr>
+<tr><td><code>dropout_markers()</code></td><td>Vertical lines where the DVL dropped out</td></tr>
+<tr><td><code>annotate_stats()</code></td><td>Small statistics box (rate, range, mean &sigma;)</td></tr>
+</table>
+
+<h2>10.3 The Five Figures</h2>
+
+<h3>Group 1 — Position (px, py, pz)</h3>
+<p><strong>Left:</strong> raw GPS scatter points (1 Hz) and raw depth points (2 Hz). <strong>Right:</strong> the continuous 100 Hz EKF position with a &sigma; band, GPS points overlaid, and yellow markers at GPS update times. Demonstrates how sparse, noisy GPS becomes a smooth track. The depth subplot uses an inverted Y axis so "deeper" points downward.</p>
+
+<h3>Group 2 — Velocity (vx, vy, vz)</h3>
+<p><strong>Left:</strong> raw DVL velocity scatter (10 Hz) with vertical lines at dropouts. <strong>Right:</strong> EKF velocity at 100 Hz with the &sigma; band. Shows that even during DVL dropouts the EKF maintains a continuous velocity estimate.</p>
+
+<h3>Group 3 — Attitude (roll, pitch, yaw)</h3>
+<p><strong>Left:</strong> raw IMU gyro rates (gx, gy, gz) and, for yaw, the raw magnetometer on a twin axis. <strong>Right:</strong> the EKF angles in degrees. The roll panel removes a 180&deg; offset purely for display (see note below).</p>
+
+<div class="note"><strong>The roll "180&deg;" display trick.</strong> Euler angles are ambiguous: an orientation can be written as (&phi;, &theta;, &psi;) or (&phi;&plusmn;180&deg;, 180&deg;&minus;&theta;, &psi;&plusmn;180&deg;). The vehicle starts nearly inverted in roll (&asymp;&minus;179&deg;), so the visualizer maps values near &plusmn;180&deg; back toward 0 for a readable plot. This is a <em>display</em> choice only — the filter math is unaffected.</div>
+
+<h3>Group 4 — Derived (speed_horiz, speed_total, distance, depth)</h3>
+<p><strong>Left:</strong> quantities computed directly from raw DVL — horizontal speed &radic;(vx&sup2;+vy&sup2;), total speed, and DVL-only dead-reckoning distance (which drifts because there is no position correction). <strong>Right:</strong> the EKF's equivalents, including the cumulative path odometer that always increases.</p>
+
+<h3>Group 5 — Uncertainty (std_pos, std_vel, std_att)</h3>
+<p>This is the most insightful figure. <strong>Left:</strong> a <em>simulated</em> "what if we had no EKF" curve — dead-reckoning error growing without bound (position &sim; t<sup>1.5</sup>, velocity and attitude linear in t). <strong>Right:</strong> the actual EKF &sigma; from the covariance matrix, which <em>converges</em> and stays low. Faint vertical lines mark DVL/Depth/GPS/Mag update events, so you can literally see &sigma; drop each time a sensor corrects the filter.</p>
+
+<div class="formula">Left-panel drift models (illustrative, drawn in the script):
+  position drift  &asymp; &sigma;&#8320; + 0.005 &middot; t<sup>1.5</sup>
+  velocity drift  &asymp; &sigma;&#8320; + 0.0008 &middot; t
+  attitude drift  &asymp; &sigma;&#8320; + 0.04 &middot; t</div>
+
+<h2>10.4 Why the Comparison Matters</h2>
+<p>The left-vs-right layout is the project's main visual argument: raw sensors are jumpy, sparse, and (for dead-reckoning) divergent; the EKF output is smooth, continuous at 100 Hz, and bounded in uncertainty. The figures are the evidence that the fusion is working.</p>
+
+
+<h1>11. Results &amp; Performance</h1>
+
+<h2>11.1 Mission Summary (from the program output)</h2>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Mission duration</td><td>79.99 s</td></tr>
+<tr><td>Total path length</td><td>640.04 m</td></tr>
+<tr><td>Final position (N, E, D)</td><td>(110.62, 412.54, &minus;0.087) m</td></tr>
+<tr><td>Final orientation (R, P, Y)</td><td>(178.70&deg;, &minus;9.38&deg;, 53.82&deg;)</td></tr>
+<tr><td>Maximum speed</td><td>6.96 m/s</td></tr>
+<tr><td>Maximum depth</td><td>3.99 m</td></tr>
+<tr><td>Fused samples</td><td>7999</td></tr>
+</table>
+
+<h2>11.2 Estimation Quality &amp; Sensor Counts</h2>
+<table>
+<tr><th>Uncertainty (final 1&sigma;)</th><th>Value</th></tr>
+<tr><td>Position &sigma;</td><td class="ok">0.089 m</td></tr>
+<tr><td>Velocity &sigma;</td><td class="ok">0.007 m/s</td></tr>
+<tr><td>Attitude &sigma;</td><td class="ok">0.098&deg;</td></tr>
+</table>
+<table>
+<tr><th>Sensor</th><th>Updates applied</th></tr>
+<tr><td>IMU samples</td><td>7999</td></tr>
+<tr><td>DVL updates</td><td>759 (of ~800; ~5% dropped)</td></tr>
+<tr><td>Depth updates</td><td>160</td></tr>
+<tr><td>GPS updates</td><td>80</td></tr>
+<tr><td>Magnetometer updates</td><td>400</td></tr>
+</table>
+
+<h2>11.3 Performance Speed</h2>
+<p>The fusion of ~8000 samples completes in a few milliseconds (over a million samples/second), confirming the filter is light enough for real-time embedded use at 100 Hz.</p>
+
+<h1>12. Questions &amp; Answers</h1>
+
+<div class="qa"><strong>Q1. What problem does this project solve?</strong><br>
+It estimates an AUV's position, velocity, and orientation underwater, where GPS is unavailable, by optimally fusing five complementary sensors with an Extended Kalman Filter.</div>
+
+<div class="qa"><strong>Q2. Why an EKF and not a plain Kalman Filter?</strong><br>
+The motion model is nonlinear — the rotation matrix and Euler kinematics use sin/cos/tan of the attitude angles. The EKF linearises the model at each step by computing the Jacobian F = &part;f/&part;x, allowing the linear KF equations to be applied.</div>
+
+<div class="qa"><strong>Q3. What does the "predict" step do, intuitively?</strong><br>
+It uses the fast IMU to guess where the vehicle moved in the last 0.01 s (integrating acceleration into velocity and velocity into position, plus gyro into attitude). Because integration accumulates error, this step also <em>grows</em> the uncertainty P.</div>
+
+<div class="qa"><strong>Q4. What does the "update" step do?</strong><br>
+When a slower, more accurate sensor reports, the filter compares it to the prediction (the "innovation"), computes a Kalman gain that weights the two by their relative trust, nudges the state toward the measurement, and <em>shrinks</em> the uncertainty.</div>
+
+<div class="qa"><strong>Q5. What is the Kalman gain physically?</strong><br>
+A number between 0 and 1 (per dimension) equal to prediction-uncertainty / (prediction + measurement) uncertainty. Near 1 means "trust the sensor"; near 0 means "trust the model". For our DVL it is about 0.99.</div>
+
+<div class="qa"><strong>Q6. Why does GPS disappear in the middle of the mission?</strong><br>
+The simulator marks GPS invalid whenever depth &gt; 2 m, modelling loss of fix while submerged. During those times the filter relies on IMU + DVL + Depth, and the position uncertainty visibly grows until GPS returns near the surface.</div>
+
+<div class="qa"><strong>Q7. Why does the accelerometer read ~&minus;9.8 when level?</strong><br>
+An accelerometer measures specific force, which includes gravity. The prediction step subtracts gravity (in the navigation frame) to recover the true motion acceleration.</div>
+
+<div class="qa"><strong>Q8. What is the Joseph form and why use it?</strong><br>
+It is the numerically stable form of the covariance update, P = (I&minus;KH)P(I&minus;KH)&#7488; + KRK&#7488;. It guarantees P stays symmetric and positive-definite even with rounding errors, preventing the filter from diverging.</div>
+
+<div class="qa"><strong>Q9. Why is the roll near &plusmn;180&deg; in the data?</strong><br>
+Euler angles have a representation ambiguity. The vehicle starts nearly inverted in roll, so the filter reports values near &plusmn;180&deg;. The visualizer remaps these toward 0 purely for readability — the underlying orientation is correct.</div>
+
+<div class="qa"><strong>Q10. How are the graphs produced?</strong><br>
+The Python script reads <code>nav_output.csv</code> and the raw <code>data/*.csv</code> with Pandas, then draws five Matplotlib figures. Each figure puts raw sensor data on the left and the smooth EKF estimate (with a &plusmn;1&sigma; band and sensor-update markers) on the right.</div>
+
+<div class="qa"><strong>Q11. What does Group 5 (uncertainty) prove?</strong><br>
+It contrasts unbounded dead-reckoning drift (left) against the EKF's converged, bounded uncertainty (right). The vertical event lines show &sigma; dropping each time a sensor corrects the filter — direct evidence the fusion works.</div>
+
+<div class="qa"><strong>Q12. How would you verify the filter is correctly tuned?</strong><br>
+Check innovation consistency: the innovations y should be zero-mean and statistically consistent with their predicted covariance S (a chi-squared / "whiteness" test). Persistently large innovations mean R or Q is too small; persistently tiny ones mean they are too large.</div>
+
+<div class="qa"><strong>Q13. Could a more advanced filter do better?</strong><br>
+Yes — an Unscented Kalman Filter (UKF) avoids explicit Jacobians and handles strong nonlinearity better, and a particle filter handles arbitrary distributions. For this AUV, the EKF is an excellent trade-off of accuracy, speed, and simplicity.</div>
+
+<h1>13. How to Build &amp; Run</h1>
+
+<h2>13.1 Build (C++)</h2>
+<div class="code">cd auv
+rm -rf build && mkdir build && cd build
+cmake ..        # configures (Release, -O3)
+make -j4        # builds the auv_nav2 executable
+cd ..</div>
+
+<h2>13.2 Run the Navigation Filter</h2>
+<div class="code"># Use existing data in data/
+./build/auv_nav2
+
+# Or regenerate the synthetic dataset first, then fuse
+./build/auv_nav2 --generate-data</div>
+<p>This produces <code>results/nav_output.csv</code> and prints a live table plus a mission summary.</p>
+
+<h2>13.3 Generate the Plots (Python)</h2>
+<div class="code"># Requires numpy, pandas, matplotlib
+pip3 install numpy pandas matplotlib
+python3 visualizer/ekf_visualizer.py --save --out plots/</div>
+<p>The five PNG figures are written to <code>plots/</code>.</p>
+
+<div class="note"><strong>Converting this report to DOCX:</strong> open <code>PROJECT_REPORT.html</code> in Microsoft Word (or upload to Google Docs) and use <em>Save As &rarr; Word Document (.docx)</em>. All headings, tables, and formatting carry over.</div>
+
+<hr style="margin-top:40px;">
+<p style="text-align:center; color:#777; font-size:9.5pt;">
+AUV EKF Navigation System — Complete Project Report<br>
+Covers architecture, data pipeline, EKF mathematics, full code walkthrough, manual calculations, graph generation, results, and Q&amp;A.<br>
+Repository: github.com/joycrypt/auv
+</p>
+
+</body>
+</html>
